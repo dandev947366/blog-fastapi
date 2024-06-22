@@ -48,3 +48,27 @@ async def create_blog(db:db_dependency, blog_request: BlogRequest):
     blog_model = Blogs(**blog_request.dict())
     db.add(blog_model)
     db.commit()
+    
+@app.put("/blog/{blog_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def update_blog(blog_id: int, blog_request: BlogRequest, db: Session = Depends(get_db)):
+    blog_model = db.query(Blogs).filter(Blogs.id == blog_id).first()
+    if blog_model is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Blog not found")
+
+    blog_model.title = blog_request.title
+    blog_model.description = blog_request.description
+    blog_model.priority = blog_request.priority
+    blog_model.complete = blog_request.complete
+
+    db.add(blog_model)
+    db.commit()
+
+    return {"message": "Blog updated successfully"}
+    
+@app.delete("/blog/{blog_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_blog(db:db_dependency, blog_id: int = Path(gt=0)):
+    blog_model = db.query(Blogs).filter(Blogs.id == blog_id).first()
+    if blog_model is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Blog not found")
+    db.query(Blogs).filter(Blogs.id == blog_id).delete()
+    db.commit()

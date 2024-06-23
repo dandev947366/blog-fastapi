@@ -6,14 +6,19 @@ from passlib.context import CryptContext
 from typing import Annotated
 from sqlalchemy.orm import Session
 from database import engine, SessionLocal
-from fastapi.security import OAuth2PasswordRequestForm
-from jose import jwt
-router = APIRouter()
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from jose import jwt, JWTError
+router = APIRouter(
+    prefix='/auth',
+    tags=['auth']
+)
 
 TEST_SECRET_KEY = '3ffdbcd6f35b28fa6493a8e18205c1b9e6b2c0b721f0a4d952af391adc41176d'
 ALGORITHM = 'HS256'
 
 bcrypt_context = CryptContext(schemes=['bcrypt'],deprecated='auto')
+oauth2_bearer = OAuth2PasswordBearer(tokenUrl='auth/token')
+
 class CreateUserRequest(BaseModel):
     username: str
     email: EmailStr
@@ -46,7 +51,19 @@ def create_access_token(username: str, user_id: int, expires_delta: timedelta):
     encode.update({'exp':expires})
     return jwt.encode(encode, TEST_SECRET_KEY, algorithm=ALGORITHM)
 
-@router.post("/auth/", status_code=status.HTTP_201_CREATED)
+async def get_current_user(token: Annotated[str, Depends:(oauth2_bearer)]):
+    try:
+        payload = jwt.decode(token, TEST_SECRET_KEY, ALGORITHM)
+        username: str = payload.get('sub')
+        user_id: int = payload.get('id')
+        if username is None or user_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate credentials')
+        return {'username': username, 'id': user_id}
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate credentials')
+        
+
+@router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_user(db: db_dependency,create_user_request: CreateUserRequest):
     password = bcrypt_context.hash(create_user_request.password)
 
@@ -68,7 +85,8 @@ async def create_user(db: db_dependency,create_user_request: CreateUserRequest):
 async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: db_dependency):
     user = authenticate_user(form_data.username, form_data.password, db)
     if not user:
-        return 'Failed Authentication'
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate credentials')
     # return 'Success'   
     token = create_access_token(user.username, user.id, timedelta(minutes=20))
     return token
+    

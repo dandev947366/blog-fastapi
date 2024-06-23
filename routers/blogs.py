@@ -4,9 +4,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from models import Blogs
 from database import SessionLocal
+from .auth import get_current_user
 
 router = APIRouter()
-
+router = APIRouter(
+    prefix="/blogs",
+    tags=["blogs"]
+)
 def get_db():
     db = SessionLocal()
     try:
@@ -15,6 +19,7 @@ def get_db():
         db.close() 
         
 db_dependency = Annotated[Session, Depends(get_db)]
+user_dependency = Annotated[dict, Depends(get_current_user)]
 
 class BlogRequest(BaseModel):
     title: str
@@ -30,25 +35,33 @@ class BlogRequest(BaseModel):
     
     
 @router.get("/", status_code=status.HTTP_200_OK)
-async def read_all(db: db_dependency):
-    return db.query(Blogs).all()
+async def read_all(user: user_dependency, db: db_dependency):
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication failed")
+    return db.query(Blogs).filter(Blogs.owner_id==user.get('id')).all()
     
 @router.get("/blogs/{blog_id}", status_code=status.HTTP_200_OK)
-async def read_blog(db: Session = Depends(get_db), blog_id: int = Path(..., gt=0)):
-    blog_model = db.query(Blogs).filter(Blogs.id == blog_id).first()
+async def read_blog(user: user_dependency, db: Session = Depends(get_db), blog_id: int = Path(..., gt=0)):
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication failed")
+    blog_model = db.query(Blogs).filter(Blogs.id == blog_id).filter(Blogs.id==user.get('id')).first()
     if blog_model:
         return blog_model
     raise HTTPException(status_code=404, detail="Blog not found")
 
-@router.post("/blog", status_code=status.HTTP_201_CREATED)
-async def create_blog(db:db_dependency, blog_request: BlogRequest):
-    blog_model = Blogs(**blog_request.dict())
+@router.post("/", status_code=status.HTTP_201_CREATED)
+async def create_blog(user: user_dependency, db: db_dependency, blog_request: BlogRequest):
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication failed")
+    blog_model = Blogs(**blog_request.dict(), owner_id=user.get('id'))
     db.add(blog_model)
     db.commit()
+    db.refresh(blog_model)
+    return blog_model
     
 @router.put("/blog/{blog_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_blog(blog_id: int, blog_request: BlogRequest, db: Session = Depends(get_db)):
-    blog_model = db.query(Blogs).filter(Blogs.id == blog_id).first()
+    blog_model = db.query(Blogs).filter(Blogs.id == blog_id).filter(Blogs.owner_id).first()
     if blog_model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Blog not found")
 

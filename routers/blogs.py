@@ -60,8 +60,10 @@ async def create_blog(user: user_dependency, db: db_dependency, blog_request: Bl
     return blog_model
     
 @router.put("/blog/{blog_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def update_blog(blog_id: int, blog_request: BlogRequest, db: Session = Depends(get_db)):
-    blog_model = db.query(Blogs).filter(Blogs.id == blog_id).filter(Blogs.owner_id).first()
+async def update_blog(user: user_dependency, db: db_dependency, blog_request: BlogRequest, blog_id: int=Path(gt=0)):
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication failed")
+    blog_model = db.query(Blogs).filter(Blogs.id == blog_id).filter(Blogs.owner_id==user.get('id')).filter(Blogs.owner_id).first()
     if blog_model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Blog not found")
 
@@ -76,8 +78,10 @@ async def update_blog(blog_id: int, blog_request: BlogRequest, db: Session = Dep
     return {"message": "Blog updated successfully"}
     
 @router.delete("/blog/{blog_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_blog(db:db_dependency, blog_id: int = Path(gt=0)):
-    blog_model = db.query(Blogs).filter(Blogs.id == blog_id).first()
+async def delete_blog(user: user_dependency, db:db_dependency, blog_id: int = Path(gt=0)):
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication failed")
+    blog_model = db.query(Blogs).filter(Blogs.owner_id==user.get('id')).filter(Blogs.id == blog_id).first()
     if blog_model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Blog not found")
     db.query(Blogs).filter(Blogs.id == blog_id).delete()
